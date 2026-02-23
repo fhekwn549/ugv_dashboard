@@ -84,7 +84,7 @@ ugv_dashboard/
 ### 설치 과정
 
 ```bash
-git clone https://github.com/<your-username>/ugv_dashboard.git
+git clone https://github.com/fhekwn549/ugv_dashboard.git
 cd ugv_dashboard
 npm install
 ```
