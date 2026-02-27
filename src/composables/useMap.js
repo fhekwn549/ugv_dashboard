@@ -1,94 +1,95 @@
 import { ref, watch, readonly } from 'vue'
-import ROSLIB from 'roslib'
-import { useRos } from './useRos'
+import { useMqtt } from './useMqtt'
+import { useApi } from './useApi'
+
+const ROBOT_ID = 'ugv01'
 
 const mapData = ref(null)
 const globalPath = ref([])
+const navStatus = ref({ status: 'idle', distance: null })
 
-let subscribers = []
+let subscribed = false
+let lastMapRevision = -1
 
-function subscribe(ros) {
-  unsubscribe()
+async function fetchMap() {
+  try {
+    const { get, robotId } = useApi()
+    const data = await get(`/api/${robotId.value}/map`)
+    if (data.error) return
 
-  const mapSub = new ROSLIB.Topic({
-    ros,
-    name: '/map',
-    messageType: 'nav_msgs/msg/OccupancyGrid',
-    throttle_rate: 2000
-  })
-  mapSub.subscribe((msg) => {
     mapData.value = {
-      width: msg.info.width,
-      height: msg.info.height,
-      resolution: msg.info.resolution,
-      origin: msg.info.origin,
-      data: msg.data
+      image: data.image,  // base64 PNG
+      width: data.width,
+      height: data.height,
+      resolution: data.resolution,
+      origin: {
+        position: { x: data.origin_x, y: data.origin_y },
+        orientation: { yaw: data.origin_yaw }
+      }
+    }
+    lastMapRevision = data.revision
+  } catch {
+    // ignore fetch errors
+  }
+}
+
+function setupSubscriptions() {
+  if (subscribed) return
+  subscribed = true
+
+  const { subscribe } = useMqtt()
+
+  // Refresh map when notified
+  subscribe(`${ROBOT_ID}/map_updated`, (data) => {
+    if (data.revision !== lastMapRevision) {
+      fetchMap()
     }
   })
-  subscribers.push(mapSub)
 
-  const pathSub = new ROSLIB.Topic({
-    ros,
-    name: '/plan',
-    messageType: 'nav_msgs/msg/Path',
-    throttle_rate: 500
+  // Path updates
+  subscribe(`${ROBOT_ID}/path`, (data) => {
+    globalPath.value = data.poses || []
   })
-  pathSub.subscribe((msg) => {
-    globalPath.value = msg.poses.map((p) => ({
-      x: p.pose.position.x,
-      y: p.pose.position.y
-    }))
+
+  // Nav status
+  subscribe(`${ROBOT_ID}/nav_status`, (data) => {
+    navStatus.value = {
+      status: data.status || 'idle',
+      distance: data.feedback_distance ?? null,
+    }
+    if (data.status === 'succeeded' || data.status === 'failed' || data.status === 'canceled') {
+      globalPath.value = []
+    }
   })
-  subscribers.push(pathSub)
+
+  // Initial map fetch
+  fetchMap()
 }
 
-function unsubscribe() {
-  subscribers.forEach((s) => {
-    try { s.unsubscribe() } catch { /* ignore */ }
-  })
-  subscribers = []
+function publishNavGoal(x, y, theta) {
+  const { post, robotId } = useApi()
+  post(`/api/${robotId.value}/navigate`, { x, y, theta })
 }
 
-function publishNavGoal(ros, x, y, theta) {
-  if (!ros) return
-
-  const goalTopic = new ROSLIB.Topic({
-    ros,
-    name: '/goal_pose',
-    messageType: 'geometry_msgs/msg/PoseStamped'
-  })
-
-  const sinH = Math.sin(theta / 2)
-  const cosH = Math.cos(theta / 2)
-
-  goalTopic.publish(
-    new ROSLIB.Message({
-      header: {
-        stamp: { sec: 0, nanosec: 0 },
-        frame_id: 'map'
-      },
-      pose: {
-        position: { x, y, z: 0 },
-        orientation: { x: 0, y: 0, z: sinH, w: cosH }
-      }
-    })
-  )
+function cancelNavigation() {
+  const { post, robotId } = useApi()
+  post(`/api/${robotId.value}/cancel`)
 }
 
 export function useMap() {
-  const { ros, isConnected } = useRos()
+  const { isConnected } = useMqtt()
 
   watch(isConnected, (connected) => {
-    if (connected && ros.value) {
-      subscribe(ros.value)
-    } else {
-      unsubscribe()
+    if (connected) {
+      setupSubscriptions()
     }
-  })
+  }, { immediate: true })
 
   return {
     mapData: readonly(mapData),
     globalPath: readonly(globalPath),
-    publishNavGoal: (x, y, theta) => publishNavGoal(ros.value, x, y, theta)
+    navStatus: readonly(navStatus),
+    publishNavGoal,
+    cancelNavigation
   }
 }

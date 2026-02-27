@@ -1,10 +1,8 @@
-import { shallowRef } from 'vue'
-import ROSLIB from 'roslib'
-import { useRos } from './useRos'
+import { useMqtt } from './useMqtt'
+import { useApi } from './useApi'
 
-const cmdVelTopic = shallowRef(null)
-const armTopic = shallowRef(null)
-const gripperTopic = shallowRef(null)
+const ROBOT_ID = 'ugv01'
+const THROTTLE_MS = 100  // 10Hz max
 
 const ARM_JOINTS = [
   'arm_base_link_to_arm_link1',
@@ -13,72 +11,52 @@ const ARM_JOINTS = [
   'arm_link3_to_arm_gripper_link'
 ]
 
-function ensureTopics(ros) {
-  if (!ros) return false
-
-  if (!cmdVelTopic.value) {
-    cmdVelTopic.value = new ROSLIB.Topic({
-      ros,
-      name: '/cmd_vel',
-      messageType: 'geometry_msgs/msg/Twist'
-    })
-  }
-
-  if (!armTopic.value) {
-    armTopic.value = new ROSLIB.Topic({
-      ros,
-      name: '/arm_controller/joint_trajectory',
-      messageType: 'trajectory_msgs/msg/JointTrajectory'
-    })
-  }
-
-  if (!gripperTopic.value) {
-    gripperTopic.value = new ROSLIB.Topic({
-      ros,
-      name: '/roarm/gripper_cmd',
-      messageType: 'std_msgs/msg/Float64'
-    })
-  }
-
-  return true
-}
+// Throttle state for arm and gripper
+let armPending = false
+let armLatest = null
+let gripperPending = false
+let gripperLatest = null
 
 function publishCmdVel(linear, angular) {
-  const { ros } = useRos()
-  if (!ensureTopics(ros.value)) return
-
-  cmdVelTopic.value.publish(
-    new ROSLIB.Message({
-      linear: { x: linear, y: 0, z: 0 },
-      angular: { x: 0, y: 0, z: angular }
-    })
-  )
+  const { publish } = useMqtt()
+  publish(`${ROBOT_ID}/cmd_vel`, { linear, angular })
 }
 
 function publishArmJoint(positions) {
-  const { ros } = useRos()
-  if (!ensureTopics(ros.value)) return
+  armLatest = positions
+  if (armPending) return
+  armPending = true
+  sendArmNow(positions)
+  setTimeout(() => {
+    armPending = false
+    // If a newer value arrived while waiting, send it
+    if (armLatest !== positions) {
+      publishArmJoint(armLatest)
+    }
+  }, THROTTLE_MS)
+}
 
-  const point = {
-    positions,
-    time_from_start: { sec: 0, nanosec: 500000000 }
-  }
-
-  armTopic.value.publish(
-    new ROSLIB.Message({
-      joint_names: ARM_JOINTS,
-      points: [point]
-    })
-  )
+function sendArmNow(positions) {
+  const { post, robotId } = useApi()
+  post(`/api/${robotId.value}/arm`, { positions })
 }
 
 function publishGripper(value) {
-  const { ros } = useRos()
-  if (!ensureTopics(ros.value)) return
+  gripperLatest = value
+  if (gripperPending) return
+  gripperPending = true
+  sendGripperNow(value)
+  setTimeout(() => {
+    gripperPending = false
+    if (gripperLatest !== value) {
+      publishGripper(gripperLatest)
+    }
+  }, THROTTLE_MS)
+}
 
-  gripperTopic.value.publish(
-    new ROSLIB.Message({ data: value })
-  )
+function sendGripperNow(value) {
+  const { post, robotId } = useApi()
+  post(`/api/${robotId.value}/gripper`, { value })
 }
 
 function stopAll() {
@@ -86,9 +64,7 @@ function stopAll() {
 }
 
 function resetTopics() {
-  cmdVelTopic.value = null
-  armTopic.value = null
-  gripperTopic.value = null
+  // No-op: MQTT handles cleanup automatically
 }
 
 export function useRobotControl() {

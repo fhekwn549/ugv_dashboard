@@ -1,15 +1,23 @@
 <template>
   <div class="lidar-container" ref="containerRef">
-    <canvas ref="canvasRef" @wheel="onWheel"></canvas>
+    <canvas
+      ref="canvasRef"
+      @wheel="onWheel"
+      @mousedown="onMouseDown"
+      @mousemove="onMouseMove"
+      @mouseup="onMouseUp"
+      @mouseleave="onMouseUp"
+    ></canvas>
     <div class="lidar-info">
       <span>{{ scanPoints.length }} pts</span>
       <span>Zoom: {{ zoom.toFixed(1) }}x</span>
+      <span>Rot: {{ rotationDeg }}°</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useLidar } from '@/composables/useLidar'
 
 const { scanPoints } = useLidar()
@@ -17,9 +25,46 @@ const { scanPoints } = useLidar()
 const canvasRef = ref(null)
 const containerRef = ref(null)
 const zoom = ref(80)
+const rotation = ref(0) // radians
+
+const rotationDeg = computed(() => Math.round(rotation.value * 180 / Math.PI))
 
 let animationId = null
 let resizeObserver = null
+
+// Drag rotation state
+let dragging = false
+let dragStartAngle = 0
+let rotationStart = 0
+
+function getAngleFromCenter(e) {
+  const canvas = canvasRef.value
+  const rect = canvas.getBoundingClientRect()
+  const cx = rect.width / 2
+  const cy = rect.height / 2
+  const dx = e.clientX - rect.left - cx
+  const dy = e.clientY - rect.top - cy
+  return Math.atan2(dy, dx)
+}
+
+function onMouseDown(e) {
+  if (e.button !== 0) return
+  dragging = true
+  dragStartAngle = getAngleFromCenter(e)
+  rotationStart = rotation.value
+  canvasRef.value.style.cursor = 'grabbing'
+}
+
+function onMouseMove(e) {
+  if (!dragging) return
+  const currentAngle = getAngleFromCenter(e)
+  rotation.value = rotationStart + (currentAngle - dragStartAngle)
+}
+
+function onMouseUp() {
+  dragging = false
+  if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
+}
 
 function resizeCanvas() {
   const canvas = canvasRef.value
@@ -39,11 +84,12 @@ function draw() {
   const h = canvas.height
   const cx = w / 2
   const cy = h / 2
+  const rot = rotation.value
 
   ctx.fillStyle = '#0f1117'
   ctx.fillRect(0, 0, w, h)
 
-  // Grid
+  // Grid (fixed, doesn't rotate)
   ctx.strokeStyle = '#1a1d27'
   ctx.lineWidth = 1
   const gridStep = zoom.value
@@ -53,22 +99,28 @@ function draw() {
     ctx.stroke()
   }
 
-  // Axes
+  // Save and apply rotation
+  ctx.save()
+  ctx.translate(cx, cy)
+  ctx.rotate(rot)
+
+  // Axes (rotate with view)
   ctx.strokeStyle = '#2e3348'
   ctx.lineWidth = 1
+  const axLen = Math.max(w, h)
   ctx.beginPath()
-  ctx.moveTo(0, cy)
-  ctx.lineTo(w, cy)
-  ctx.moveTo(cx, 0)
-  ctx.lineTo(cx, h)
+  ctx.moveTo(-axLen, 0)
+  ctx.lineTo(axLen, 0)
+  ctx.moveTo(0, -axLen)
+  ctx.lineTo(0, axLen)
   ctx.stroke()
 
-  // Robot
-  ctx.fillStyle = var_accent
+  // Robot arrow
+  ctx.fillStyle = '#4e8cff'
   ctx.beginPath()
-  ctx.moveTo(cx + 8, cy)
-  ctx.lineTo(cx - 5, cy - 5)
-  ctx.lineTo(cx - 5, cy + 5)
+  ctx.moveTo(8, 0)
+  ctx.lineTo(-5, -5)
+  ctx.lineTo(-5, 5)
   ctx.closePath()
   ctx.fill()
 
@@ -76,15 +128,15 @@ function draw() {
   const points = scanPoints.value
   ctx.fillStyle = '#34d399'
   for (const pt of points) {
-    const px = cx + pt.x * zoom.value
-    const py = cy - pt.y * zoom.value
+    const px = pt.x * zoom.value
+    const py = -pt.y * zoom.value
     ctx.fillRect(px - 1, py - 1, 2, 2)
   }
 
+  ctx.restore()
+
   animationId = requestAnimationFrame(draw)
 }
-
-const var_accent = '#4e8cff'
 
 function onWheel(e) {
   e.preventDefault()
@@ -95,10 +147,9 @@ onMounted(() => {
   resizeCanvas()
   resizeObserver = new ResizeObserver(resizeCanvas)
   resizeObserver.observe(containerRef.value)
+  canvasRef.value.style.cursor = 'grab'
   animationId = requestAnimationFrame(draw)
 })
-
-// draw loop is continuous via rAF, no need to watch scanPoints
 
 onUnmounted(() => {
   if (animationId) cancelAnimationFrame(animationId)

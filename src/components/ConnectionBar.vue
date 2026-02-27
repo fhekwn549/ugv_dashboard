@@ -7,10 +7,10 @@
       <div class="url-group">
         <span :class="['dot', { connected: isConnected }]"></span>
         <input
-          v-model="url"
+          v-model="brokerUrl"
           type="text"
           class="url-input"
-          placeholder="ws://192.168.0.71:9090"
+          placeholder="ws://192.168.0.71:1884"
           :disabled="isConnected"
           @keyup.enter="handleConnect"
         />
@@ -29,15 +29,15 @@
 </template>
 
 <script setup>
-import { useRos } from '@/composables/useRos'
+import { useMqtt } from '@/composables/useMqtt'
 
-const { url, isConnected, connect, disconnect } = useRos()
+const { brokerUrl, isConnected, connect, disconnect } = useMqtt()
 
 function handleConnect() {
   if (isConnected.value) {
     disconnect()
   } else {
-    connect(url.value)
+    connect(brokerUrl.value)
   }
 }
 </script>

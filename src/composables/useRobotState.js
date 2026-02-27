@@ -1,6 +1,7 @@
 import { ref, watch, readonly } from 'vue'
-import ROSLIB from 'roslib'
-import { useRos } from './useRos'
+import { useMqtt } from './useMqtt'
+
+const ROBOT_ID = 'ugv01'
 
 const battery = ref(0)
 const position = ref({ x: 0, y: 0 })
@@ -9,88 +10,48 @@ const linearVel = ref(0)
 const angularVel = ref(0)
 const imuYaw = ref(0)
 const jointPositions = ref({})
+const mapPosition = ref({ x: 0, y: 0 })
+const mapOrientation = ref(0)
+const mapPoseValid = ref(false)
 
-let subscribers = []
+let subscribed = false
 
-function quaternionToYaw(q) {
-  const siny = 2 * (q.w * q.z + q.x * q.y)
-  const cosy = 1 - 2 * (q.y * q.y + q.z * q.z)
-  return Math.atan2(siny, cosy)
-}
+function setupSubscriptions() {
+  if (subscribed) return
+  subscribed = true
 
-function subscribe(ros) {
-  unsubscribe()
+  const { subscribe } = useMqtt()
 
-  const odomSub = new ROSLIB.Topic({
-    ros,
-    name: '/odom',
-    messageType: 'nav_msgs/msg/Odometry',
-    throttle_rate: 100
+  subscribe(`${ROBOT_ID}/pose`, (data) => {
+    position.value = { x: data.x, y: data.y }
+    orientation.value = data.yaw
+    linearVel.value = data.linear_vel
+    angularVel.value = data.angular_vel
   })
-  odomSub.subscribe((msg) => {
-    const p = msg.pose.pose.position
-    position.value = { x: p.x, y: p.y }
-    orientation.value = quaternionToYaw(msg.pose.pose.orientation)
-    linearVel.value = msg.twist.twist.linear.x
-    angularVel.value = msg.twist.twist.angular.z
-  })
-  subscribers.push(odomSub)
 
-  const voltageSub = new ROSLIB.Topic({
-    ros,
-    name: '/voltage',
-    messageType: 'std_msgs/msg/Float32',
-    throttle_rate: 1000
+  subscribe(`${ROBOT_ID}/voltage`, (data) => {
+    battery.value = data.voltage
   })
-  voltageSub.subscribe((msg) => {
-    battery.value = msg.data
-  })
-  subscribers.push(voltageSub)
 
-  const jointSub = new ROSLIB.Topic({
-    ros,
-    name: '/joint_states',
-    messageType: 'sensor_msgs/msg/JointState',
-    throttle_rate: 200
+  subscribe(`${ROBOT_ID}/joint_states`, (data) => {
+    jointPositions.value = data.joints || {}
   })
-  jointSub.subscribe((msg) => {
-    const joints = {}
-    for (let i = 0; i < msg.name.length; i++) {
-      joints[msg.name[i]] = msg.position[i] || 0
-    }
-    jointPositions.value = joints
-  })
-  subscribers.push(jointSub)
 
-  const imuSub = new ROSLIB.Topic({
-    ros,
-    name: '/imu/data',
-    messageType: 'sensor_msgs/msg/Imu',
-    throttle_rate: 200
+  subscribe(`${ROBOT_ID}/map_pose`, (data) => {
+    mapPosition.value = { x: data.x, y: data.y }
+    mapOrientation.value = data.yaw
+    mapPoseValid.value = !!data.valid
   })
-  imuSub.subscribe((msg) => {
-    imuYaw.value = quaternionToYaw(msg.orientation)
-  })
-  subscribers.push(imuSub)
-}
-
-function unsubscribe() {
-  subscribers.forEach((s) => {
-    try { s.unsubscribe() } catch { /* ignore */ }
-  })
-  subscribers = []
 }
 
 export function useRobotState() {
-  const { ros, isConnected } = useRos()
+  const { isConnected } = useMqtt()
 
   watch(isConnected, (connected) => {
-    if (connected && ros.value) {
-      subscribe(ros.value)
-    } else {
-      unsubscribe()
+    if (connected) {
+      setupSubscriptions()
     }
-  })
+  }, { immediate: true })
 
   return {
     battery: readonly(battery),
@@ -99,6 +60,9 @@ export function useRobotState() {
     linearVel: readonly(linearVel),
     angularVel: readonly(angularVel),
     imuYaw: readonly(imuYaw),
-    jointPositions: readonly(jointPositions)
+    jointPositions: readonly(jointPositions),
+    mapPosition: readonly(mapPosition),
+    mapOrientation: readonly(mapOrientation),
+    mapPoseValid: readonly(mapPoseValid),
   }
 }

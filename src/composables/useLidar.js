@@ -1,28 +1,25 @@
 import { ref, watch, readonly } from 'vue'
-import ROSLIB from 'roslib'
-import { useRos } from './useRos'
+import { useMqtt } from './useMqtt'
+
+const ROBOT_ID = 'ugv01'
 
 const scanPoints = ref([])
 
-let subscriber = null
+let subscribed = false
 
-function subscribe(ros) {
-  unsubscribe()
+function setupSubscription() {
+  if (subscribed) return
+  subscribed = true
 
-  subscriber = new ROSLIB.Topic({
-    ros,
-    name: '/scan',
-    messageType: 'sensor_msgs/msg/LaserScan',
-    throttle_rate: 100
-  })
+  const { subscribe } = useMqtt()
 
-  subscriber.subscribe((msg) => {
+  subscribe(`${ROBOT_ID}/scan`, (msg) => {
     const points = []
     const { angle_min, angle_increment, ranges, range_min, range_max } = msg
 
     for (let i = 0; i < ranges.length; i++) {
       const r = ranges[i]
-      if (r < range_min || r > range_max || !isFinite(r)) continue
+      if (r == null || r < range_min || r > range_max || !isFinite(r)) continue
 
       const angle = angle_min + i * angle_increment + Math.PI / 2
       points.push({
@@ -35,23 +32,14 @@ function subscribe(ros) {
   })
 }
 
-function unsubscribe() {
-  if (subscriber) {
-    try { subscriber.unsubscribe() } catch { /* ignore */ }
-    subscriber = null
-  }
-}
-
 export function useLidar() {
-  const { ros, isConnected } = useRos()
+  const { isConnected } = useMqtt()
 
   watch(isConnected, (connected) => {
-    if (connected && ros.value) {
-      subscribe(ros.value)
-    } else {
-      unsubscribe()
+    if (connected) {
+      setupSubscription()
     }
-  })
+  }, { immediate: true })
 
   return {
     scanPoints: readonly(scanPoints)

@@ -1,28 +1,143 @@
 <template>
   <div class="map-container" ref="containerRef">
-    <canvas ref="canvasRef" @click="onCanvasClick" @wheel="onWheel"></canvas>
+    <canvas
+      ref="canvasRef"
+      @wheel="onWheel"
+      @mousedown="onMouseDown"
+      @mousemove="onMouseMove"
+      @mouseup="onMouseUp"
+      @mouseleave="onMouseUp"
+      @contextmenu.prevent
+    ></canvas>
+    <div v-if="navStatus.status === 'navigating'" class="nav-overlay">
+      <span class="nav-status">Navigating<span v-if="navStatus.distance != null"> — {{ navStatus.distance.toFixed(2) }}m</span></span>
+      <button class="nav-cancel-btn" @click="cancelNavigation">Cancel</button>
+    </div>
+    <div v-else-if="showResult && navStatus.status === 'succeeded'" class="nav-overlay nav-done">
+      <span class="nav-status">Arrived</span>
+    </div>
+    <div v-else-if="showResult && (navStatus.status === 'failed' || navStatus.status === 'canceled')" class="nav-overlay nav-err">
+      <span class="nav-status">{{ navStatus.status === 'failed' ? 'Failed' : 'Canceled' }}</span>
+    </div>
+    <button class="lidar-toggle" :class="{ active: showScan }" @click="showScan = !showScan">
+      LiDAR
+    </button>
     <div class="map-info">
       <span v-if="mapData">{{ mapData.width }}x{{ mapData.height }} | {{ mapData.resolution }}m/px</span>
       <span v-else>No map data</span>
+      <span>Zoom: {{ mapZoom.toFixed(1) }}x</span>
+      <span>Rot: {{ rotationDeg }}°</span>
+      <span v-if="mapPoseValid">TF</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useMap } from '@/composables/useMap'
 import { useRobotState } from '@/composables/useRobotState'
+import { useLidar } from '@/composables/useLidar'
 
-const { mapData, globalPath, publishNavGoal } = useMap()
-const { position, orientation } = useRobotState()
+const { mapData, globalPath, navStatus, publishNavGoal, cancelNavigation } = useMap()
+const { scanPoints } = useLidar()
+
+const showResult = ref(false)
+let resultTimer = null
+
+watch(() => navStatus.value.status, (s) => {
+  if (s === 'succeeded' || s === 'failed' || s === 'canceled') {
+    showResult.value = true
+    clearTimeout(resultTimer)
+    resultTimer = setTimeout(() => { showResult.value = false }, 3000)
+  } else {
+    showResult.value = false
+  }
+})
+const { position, orientation, mapPosition, mapOrientation, mapPoseValid } = useRobotState()
+const showScan = ref(true)
 
 const canvasRef = ref(null)
 const containerRef = ref(null)
 const mapZoom = ref(1)
+const rotation = ref(0)
+const panX = ref(0)
+const panY = ref(0)
+
+const rotationDeg = computed(() => Math.round(rotation.value * 180 / Math.PI))
 
 let animationId = null
 let resizeObserver = null
-let mapImageData = null
+let mapImage = null
+
+// Interaction state
+let dragging = false
+let dragType = null // 'pan' | 'rotate'
+let dragStartX = 0
+let dragStartY = 0
+let dragStartAngle = 0
+let panStartX = 0
+let panStartY = 0
+let rotationStart = 0
+const CLICK_THRESHOLD = 4
+
+function getAngleFromCenter(e) {
+  const canvas = canvasRef.value
+  const rect = canvas.getBoundingClientRect()
+  const cx = rect.width / 2
+  const cy = rect.height / 2
+  return Math.atan2(e.clientY - rect.top - cy, e.clientX - rect.left - cx)
+}
+
+function onMouseDown(e) {
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+
+  if (e.button === 2) {
+    // Right drag = rotate
+    dragging = true
+    dragType = 'rotate'
+    dragStartAngle = getAngleFromCenter(e)
+    rotationStart = rotation.value
+    canvasRef.value.style.cursor = 'grabbing'
+  } else if (e.button === 0) {
+    // Left drag = pan
+    dragging = true
+    dragType = 'pan'
+    panStartX = panX.value
+    panStartY = panY.value
+    canvasRef.value.style.cursor = 'grabbing'
+  }
+}
+
+function onMouseMove(e) {
+  if (!dragging) return
+
+  if (dragType === 'rotate') {
+    const currentAngle = getAngleFromCenter(e)
+    rotation.value = rotationStart + (currentAngle - dragStartAngle)
+  } else if (dragType === 'pan') {
+    panX.value = panStartX + (e.clientX - dragStartX)
+    panY.value = panStartY + (e.clientY - dragStartY)
+  }
+}
+
+function onMouseUp(e) {
+  if (!dragging) return
+
+  const dx = e.clientX - dragStartX
+  const dy = e.clientY - dragStartY
+  const moved = Math.sqrt(dx * dx + dy * dy)
+
+  dragging = false
+
+  // Left click without drag = set nav goal
+  if (dragType === 'pan' && moved < CLICK_THRESHOLD) {
+    setNavGoal(e)
+  }
+
+  dragType = null
+  if (canvasRef.value) canvasRef.value.style.cursor = 'crosshair'
+}
 
 function resizeCanvas() {
   const canvas = canvasRef.value
@@ -34,30 +149,14 @@ function resizeCanvas() {
 
 function buildMapImage() {
   const map = mapData.value
-  if (!map) return
-
-  const { width, height, data } = map
-  const imageData = new ImageData(width, height)
-
-  for (let i = 0; i < data.length; i++) {
-    const val = data[i]
-    let r, g, b
-    if (val === -1) {
-      r = 40; g = 43; b = 55
-    } else if (val === 0) {
-      r = 230; g = 233; b = 240
-    } else {
-      const shade = Math.max(0, 255 - Math.floor(val * 2.55))
-      r = shade; g = shade; b = shade
-    }
-    const idx = i * 4
-    imageData.data[idx] = r
-    imageData.data[idx + 1] = g
-    imageData.data[idx + 2] = b
-    imageData.data[idx + 3] = 255
+  if (!map || !map.image) {
+    mapImage = null
+    return
   }
 
-  mapImageData = imageData
+  const img = new Image()
+  img.onload = () => { mapImage = img }
+  img.src = `data:image/png;base64,${map.image}`
 }
 
 function draw() {
@@ -72,27 +171,30 @@ function draw() {
   ctx.fillRect(0, 0, w, h)
 
   const map = mapData.value
-  if (!map || !mapImageData) {
+  if (!map || !mapImage) {
     ctx.fillStyle = '#8b90a5'
     ctx.font = '14px sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('Waiting for /map ...', w / 2, h / 2)
+    ctx.fillText('Waiting for map ...', w / 2, h / 2)
     animationId = requestAnimationFrame(draw)
     return
   }
 
   const { width, height, resolution, origin } = map
-  const scale = mapZoom.value * Math.min(w / width, h / height)
+  const baseScale = Math.min(w / width, h / height)
+  const scale = mapZoom.value * baseScale
 
   ctx.save()
-  ctx.translate(w / 2, h / 2)
+  ctx.translate(w / 2 + panX.value, h / 2 + panY.value)
+  ctx.rotate(rotation.value)
   ctx.scale(scale, -scale)
   ctx.translate(-width / 2, -height / 2)
 
-  const offCanvas = new OffscreenCanvas(width, height)
-  const offCtx = offCanvas.getContext('2d')
-  offCtx.putImageData(mapImageData, 0, 0)
-  ctx.drawImage(offCanvas, 0, 0)
+  // Map image (PNG, already flipped by backend)
+  ctx.save()
+  ctx.scale(1, -1)
+  ctx.drawImage(mapImage, 0, -height)
+  ctx.restore()
 
   // Global path
   const path = globalPath.value
@@ -109,13 +211,36 @@ function draw() {
     ctx.stroke()
   }
 
-  // Robot position
-  const rx = (position.value.x - origin.position.x) / resolution
-  const ry = (position.value.y - origin.position.y) / resolution
+  // Robot position (prefer TF-based map_pose, fallback to odom)
+  const useMap = mapPoseValid.value
+  const posX = useMap ? mapPosition.value.x : position.value.x
+  const posY = useMap ? mapPosition.value.y : position.value.y
+  const posYaw = useMap ? mapOrientation.value : orientation.value
 
+  const rx = (posX - origin.position.x) / resolution
+  const ry = (posY - origin.position.y) / resolution
+
+  // LiDAR overlay
+  if (showScan.value && scanPoints.value.length > 0) {
+    const cosYaw = Math.cos(posYaw)
+    const sinYaw = Math.sin(posYaw)
+    ctx.fillStyle = 'rgba(255, 60, 60, 0.8)'
+    const dotSize = 1.5 / scale
+    for (const pt of scanPoints.value) {
+      // base_link → map frame rotation
+      const mx = posX + pt.x * cosYaw - pt.y * sinYaw
+      const my = posY + pt.x * sinYaw + pt.y * cosYaw
+      // map → pixel
+      const px = (mx - origin.position.x) / resolution
+      const py = (my - origin.position.y) / resolution
+      ctx.fillRect(px - dotSize / 2, py - dotSize / 2, dotSize, dotSize)
+    }
+  }
+
+  // Robot arrow
   ctx.save()
   ctx.translate(rx, ry)
-  ctx.rotate(orientation.value)
+  ctx.rotate(posYaw)
 
   const robotSize = 6 / scale
   ctx.fillStyle = '#f87171'
@@ -132,28 +257,39 @@ function draw() {
   animationId = requestAnimationFrame(draw)
 }
 
-function onWheel(e) {
-  e.preventDefault()
-  mapZoom.value = Math.max(0.2, Math.min(10, mapZoom.value * (1 - e.deltaY * 0.001)))
-}
-
-function onCanvasClick(e) {
+function setNavGoal(e) {
   const map = mapData.value
-  if (!map) return
+  if (!map || !mapImage) return
 
   const canvas = canvasRef.value
   const rect = canvas.getBoundingClientRect()
   const { width, height, resolution, origin } = map
+  const baseScale = Math.min(canvas.width / width, canvas.height / height)
+  const scale = mapZoom.value * baseScale
 
-  const scale = mapZoom.value * Math.min(canvas.width / width, canvas.height / height)
+  // Reverse: screen → rotated map coords
+  let sx = e.clientX - rect.left - canvas.width / 2 - panX.value
+  let sy = e.clientY - rect.top - canvas.height / 2 - panY.value
 
-  const px = (e.clientX - rect.left - canvas.width / 2) / scale + width / 2
-  const py = -(e.clientY - rect.top - canvas.height / 2) / scale + height / 2
+  // Undo rotation
+  const cos = Math.cos(-rotation.value)
+  const sin = Math.sin(-rotation.value)
+  const rx = sx * cos - sy * sin
+  const ry = sx * sin + sy * cos
+
+  // Undo scale + flip
+  const px = rx / scale + width / 2
+  const py = -(ry / scale) + height / 2
 
   const worldX = px * resolution + origin.position.x
   const worldY = py * resolution + origin.position.y
 
   publishNavGoal(worldX, worldY, 0)
+}
+
+function onWheel(e) {
+  e.preventDefault()
+  mapZoom.value = Math.max(0.2, Math.min(10, mapZoom.value * (1 - e.deltaY * 0.001)))
 }
 
 watch(mapData, buildMapImage)
@@ -162,6 +298,7 @@ onMounted(() => {
   resizeCanvas()
   resizeObserver = new ResizeObserver(resizeCanvas)
   resizeObserver.observe(containerRef.value)
+  if (mapData.value) buildMapImage()
   animationId = requestAnimationFrame(draw)
 })
 
@@ -186,10 +323,71 @@ canvas {
   cursor: crosshair;
 }
 
+.nav-overlay {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(78, 140, 255, 0.9);
+  color: #fff;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  padding: 6px 14px;
+  border-radius: 6px;
+}
+
+.nav-overlay.nav-done {
+  background: rgba(52, 211, 153, 0.9);
+}
+
+.nav-overlay.nav-err {
+  background: rgba(248, 113, 113, 0.9);
+}
+
+.nav-cancel-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.nav-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.lidar-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(15, 17, 23, 0.7);
+  border: 1px solid rgba(255, 60, 60, 0.4);
+  color: #8b90a5;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.lidar-toggle.active {
+  background: rgba(255, 60, 60, 0.25);
+  color: #f87171;
+  border-color: #f87171;
+}
+
 .map-info {
   position: absolute;
   bottom: 8px;
   right: 8px;
+  display: flex;
+  gap: 12px;
   font-size: 11px;
   color: var(--color-text-dim);
   font-family: var(--font-mono);

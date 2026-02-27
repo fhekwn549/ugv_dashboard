@@ -20,9 +20,9 @@
 </template>
 
 <script setup>
-import { useRos } from '@/composables/useRos'
+import { useMqtt } from '@/composables/useMqtt'
 
-const { logs } = useRos()
+const { logs } = useMqtt()
 </script>
 
 <style scoped>

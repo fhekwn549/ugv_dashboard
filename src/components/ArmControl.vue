@@ -74,12 +74,10 @@ function jointDeg(name) {
 }
 
 function sendArm() {
-  const gripRad = degToRad(gripperValue.value * GRIPPER_SLIDER_SCALE)
   const positions = [
     degToRad(jointValues.value[0]),
     degToRad(jointValues.value[1]),
     degToRad(jointValues.value[2]),
-    -gripRad  // URDF = -grip_level (axis negation)
   ]
   publishArmJoint(positions)
 }
