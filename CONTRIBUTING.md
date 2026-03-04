@@ -152,7 +152,7 @@ ugv_dashboard/
 
 ## 브랜치 전략
 
-워크스페이스 루트의 [BRANCHING_STRATEGY.md](../ugv_ws/BRANCHING_STRATEGY.md)를 참고하세요.
+[BRANCHING_STRATEGY.md](./BRANCHING_STRATEGY.md)를 참고하세요.
 
 기본 브랜치: `main`
 
