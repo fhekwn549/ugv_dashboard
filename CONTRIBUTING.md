@@ -156,20 +156,15 @@ ugv_dashboard/
 
 ```
 main  ← 보호된 기본 브랜치 (직접 push 불가)
- ├── jeonghun/add-camera-view     ← 기여자별 작업 브랜치
- ├── minsoo/fix-lidar-render
- └── jiyeon/update-status-panel
+ ├── jeonghun        ← 기여자별 작업 브랜치 (본인 이름)
+ ├── minsoo
+ └── jiyeon
 ```
 
 ### 브랜치 네이밍
 
-```
-<이름>/<간단한-설명>
-```
-
-- 소문자만 사용, 단어 구분은 하이픈(`-`)
-- `<이름>`은 GitHub 사용자명 또는 이름
-- 설명은 영어로 간결하게 (3~5 단어)
+- 본인 이름을 브랜치명으로 사용 (예: `jeonghun`, `minsoo`)
+- 소문자만 사용
 
 ---
 
@@ -186,7 +181,7 @@ git pull origin main
 ### Step 2: 내 작업 브랜치 만들기
 
 ```bash
-git checkout -b jeonghun/add-camera-view
+git checkout -b jeonghun
 ```
 
 > `jeonghun` 부분을 본인 이름으로 바꾸세요.
@@ -196,7 +191,7 @@ git checkout -b jeonghun/add-camera-view
 
 ```bash
 git branch
-# * jeonghun/add-camera-view   ← 현재 브랜치 (* 표시)
+# * jeonghun                 ← 현재 브랜치 (* 표시)
 #   main
 ```
 
@@ -235,7 +230,7 @@ git commit -m "feat(components): add camera stream view"
 ### Step 5: GitHub에 push
 
 ```bash
-git push -u origin jeonghun/add-camera-view
+git push -u origin jeonghun
 ```
 
 > 처음 push할 때는 `-u` 옵션이 필요합니다. 이후 같은 브랜치에서는 `git push`만 하면 됩니다.
@@ -268,13 +263,13 @@ git checkout main
 git pull origin main
 
 # 머지 완료된 로컬 브랜치 삭제
-git branch -d jeonghun/add-camera-view
+git branch -d jeonghun
 ```
 
 ### 요약 흐름도
 
 ```
-git pull → git checkout -b <이름>/<설명> → 코드 수정 → git add → git commit → git push
+git pull → git checkout -b <이름> → 코드 수정 → git add → git commit → git push
 → GitHub에서 PR 생성 → 리뷰 승인 → Merge → 로컬 정리
 ```
 
