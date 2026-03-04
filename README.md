@@ -155,5 +155,4 @@ npm run build
 
 | 레포 | 역할 |
 |------|------|
-| [ugv_ws](https://github.com/fhekwn549/ugv_ws) | 하드웨어 드라이버 + ugv_bridge (MQTT/REST 브릿지) |
-| [ugv_roarm_description](https://github.com/fhekwn549/ugv_roarm_description) | URDF, launch, Nav2, 텔레옵 |
+| [ugv_ws](https://github.com/fhekwn549/ugv_ws) | 하드웨어 드라이버 + ugv_bridge (MQTT/REST 브릿지) + ugv_roarm_description (URDF, launch, Nav2) |

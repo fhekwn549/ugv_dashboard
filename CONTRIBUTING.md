@@ -144,7 +144,7 @@ ugv_dashboard/
 
 ### 3. 양쪽 리포에 PR 생성
 
-- `ugv_ws` PR: bridge 측 변경사항
+- `ugv_ws` PR: bridge 측 변경사항 (ugv_roarm_description 포함)
 - `ugv_dashboard` PR: 프론트엔드 변경사항
 - 두 PR을 상호 참조 (`Related: org/repo#이슈번호`)
 
