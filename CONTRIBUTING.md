@@ -1,6 +1,6 @@
 # 기여 가이드 (ugv_dashboard)
 
-UGV RoArm 프로젝트의 웹 대시보드 리포지토리에 기여하기 위한 가이드입니다. Vue 3 + Vite 기반의 SPA로, MQTT를 통해 로봇과 통신합니다.
+UGV RoArm 프로젝트의 웹 대시보드 리포지토리에 기여하기 위한 가이드입니다. Vue 3 + Vite 기반의 SPA로, STOMP over WebSocket(RabbitMQ)을 통해 로봇과 통신합니다.
 
 ---
 
@@ -81,7 +81,8 @@ ugv_dashboard/
 │       ├── useLidar.js          # LiDAR 데이터 처리
 │       ├── useLogs.js           # 로그 관리
 │       ├── useMap.js            # 지도 데이터
-│       ├── useMqtt.js           # MQTT 연결/구독
+│       ├── useStomp.js          # STOMP/WS 연결/구독 (핵심)
+│       ├── useMqtt.js           # useStomp re-export shim
 │       ├── useNavigation.js     # 내비게이션 제어
 │       ├── useRobotControl.js   # 로봇 제어 명령
 │       ├── useRobotState.js     # 로봇 상태 관리
@@ -103,31 +104,33 @@ ugv_dashboard/
 
 - **Components**: UI 렌더링과 사용자 인터랙션 담당
 - **Composables**: 비즈니스 로직과 상태 관리 (`use*.js`)
-- **MQTT**: 실시간 데이터 (센서, 상태) 수신
+- **STOMP/WS**: 실시간 데이터 (센서, 상태) 수신 (RabbitMQ Web STOMP)
 - **REST API**: 명령 전송 및 설정 변경
 
 ---
 
-## MQTT 토픽 추가 절차
+## 토픽 추가 절차
 
-새로운 MQTT 토픽을 추가할 때의 절차입니다:
+새로운 MQTT/STOMP 토픽을 추가할 때의 절차입니다:
+
+> **참고**: Dashboard는 STOMP over WebSocket으로 통신하지만, `useMqtt` shim을 통해 기존 API를 그대로 사용합니다. 내부적으로 `useStomp.js`가 MQTT 토픽명(`ugv01/pose`)을 STOMP destination(`/topic/ugv01.pose`)으로 자동 변환합니다.
 
 ### 1. ugv_bridge 측 (백엔드)
 
-`ugv_ws` 리포에서 `ugv_bridge` 패키지에 새 토픽 퍼블리시/구독 추가
+`ugv_ws` 리포에서 `ugv_bridge` 패키지에 새 토픽 퍼블리시/구독 추가 (paho-mqtt, MQTT 토픽명 사용)
 
 ### 2. ugv_dashboard 측 (프론트엔드)
 
 1. **Composable 수정/생성**: `src/composables/`에서 관련 composable에 토픽 구독 로직 추가
    ```javascript
    // src/composables/useNewFeature.js
-   import { useMqtt } from './useMqtt'
+   import { useMqtt } from './useMqtt'  // useStomp의 shim
 
    export function useNewFeature() {
      const { subscribe, publish } = useMqtt()
 
-     // 토픽 구독
-     subscribe('ugv/new_topic', (message) => {
+     // MQTT 스타일 토픽명 사용 — STOMP 변환은 자동
+     subscribe('ugv01/new_topic', (message) => {
        // 메시지 처리
      })
 

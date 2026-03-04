@@ -10,7 +10,7 @@
           v-model="brokerUrl"
           type="text"
           class="url-input"
-          placeholder="ws://192.168.0.71:1884"
+          placeholder="ws://192.168.0.71:15674/ws"
           :disabled="isConnected"
           @keyup.enter="handleConnect"
         />
