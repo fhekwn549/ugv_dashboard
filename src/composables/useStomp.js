@@ -1,19 +1,22 @@
 import { ref, readonly } from 'vue'
-import { Client } from '@stomp/stompjs'
+import Stomp from 'stompjs'
 
 const robotHost = import.meta.env.VITE_ROBOT_HOST || 'localhost'
 const brokerUrl = ref(`ws://${robotHost}:15674/ws`)
+const connectedHost = ref(robotHost)
 const isConnected = ref(false)
 const logs = ref([])
 
-let client = null
+let stompClient = null
+let reconnectTimer = null
 const topicHandlers = new Map()
+const stompSubs = new Map()  // topic → STOMP subscription object
 
 function addLog(level, message) {
   const entry = {
     time: new Date().toLocaleTimeString(),
     level,
-    message
+    message,
   }
   logs.value = [entry, ...logs.value].slice(0, 200)
 }
@@ -23,88 +26,120 @@ function mqttToStomp(topic) {
   return '/topic/' + topic.replace(/\//g, '.')
 }
 
-/** Convert STOMP destination back to MQTT-style topic: /topic/ugv01.pose → ugv01/pose */
-function stompToMqtt(destination) {
-  return destination.replace(/^\/topic\//, '').replace(/\./g, '/')
+function subscribeAll() {
+  if (!stompClient || !stompClient.connected) return
+  stompSubs.clear()
+  for (const [topic, handler] of topicHandlers.entries()) {
+    const dest = mqttToStomp(topic)
+    const sub = stompClient.subscribe(dest, (msg) => {
+      try {
+        handler(JSON.parse(msg.body))
+      } catch { /* ignore parse errors */ }
+    })
+    stompSubs.set(topic, sub)
+  }
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    if (!isConnected.value) {
+      addLog('info', 'Attempting reconnect...')
+      connect()
+    }
+  }, 3000)
 }
 
 function connect(url) {
   if (url) brokerUrl.value = url
   disconnect()
 
-  client = new Client({
-    brokerURL: brokerUrl.value,
-    reconnectDelay: 3000,
-    heartbeatIncoming: 10000,
-    heartbeatOutgoing: 10000,
+  const ws = new WebSocket(brokerUrl.value)
+  stompClient = Stomp.over(ws)
+  stompClient.debug = null // suppress debug logs
 
-    onConnect: () => {
+  stompClient.connect(
+    'guest',
+    'guest',
+    // onConnect
+    () => {
       isConnected.value = true
+      try {
+        const parsed = new URL(brokerUrl.value)
+        connectedHost.value = parsed.hostname
+      } catch { /* keep previous */ }
       addLog('info', `STOMP connected to ${brokerUrl.value}`)
-      // Re-subscribe all registered topics
-      for (const [topic, handler] of topicHandlers.entries()) {
-        const dest = mqttToStomp(topic)
-        client.subscribe(dest, (msg) => {
-          try {
-            handler(JSON.parse(msg.body))
-          } catch { /* ignore parse errors */ }
-        })
-      }
+      subscribeAll()
     },
-
-    onDisconnect: () => {
+    // onError
+    (error) => {
       isConnected.value = false
-      addLog('warn', 'STOMP disconnected')
+      const msg = typeof error === 'string' ? error : error?.headers?.message || 'unknown'
+      addLog('error', `STOMP error: ${msg}`)
+      scheduleReconnect()
     },
+    // vhost
+    '/',
+  )
 
-    onStompError: (frame) => {
-      addLog('error', `STOMP error: ${frame.headers.message || 'unknown'}`)
-    },
-
-    onWebSocketClose: () => {
-      isConnected.value = false
-    }
-  })
-
-  client.activate()
+  ws.onclose = () => {
+    isConnected.value = false
+    scheduleReconnect()
+  }
 }
 
 function disconnect() {
-  if (client) {
-    try { client.deactivate() } catch { /* ignore */ }
-    client = null
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (stompClient) {
+    try { stompClient.disconnect(() => {}) } catch { /* ignore */ }
+    stompClient = null
     isConnected.value = false
   }
 }
 
 function subscribe(topic, handler) {
+  // Unsubscribe existing subscription for this topic first
+  const existing = stompSubs.get(topic)
+  if (existing) {
+    try { existing.unsubscribe() } catch { /* ignore */ }
+    stompSubs.delete(topic)
+  }
   topicHandlers.set(topic, handler)
-  if (client && client.connected) {
+  if (stompClient && stompClient.connected) {
     const dest = mqttToStomp(topic)
-    client.subscribe(dest, (msg) => {
+    const sub = stompClient.subscribe(dest, (msg) => {
       try {
         handler(JSON.parse(msg.body))
       } catch { /* ignore parse errors */ }
     })
+    stompSubs.set(topic, sub)
   }
 }
 
 function unsubscribe(topic) {
+  const sub = stompSubs.get(topic)
+  if (sub) {
+    try { sub.unsubscribe() } catch { /* ignore */ }
+    stompSubs.delete(topic)
+  }
   topicHandlers.delete(topic)
-  // STOMP.js manages subscriptions internally via IDs;
-  // on next reconnect the handler won't be re-registered.
 }
 
 function publish(topic, data, _qos = 0) {
-  if (client && client.connected) {
+  if (stompClient && stompClient.connected) {
     const body = typeof data === 'string' ? data : JSON.stringify(data)
-    client.publish({ destination: mqttToStomp(topic), body })
+    stompClient.send(mqttToStomp(topic), {}, body)
   }
 }
 
 export function useStomp() {
   return {
     brokerUrl,
+    connectedHost: readonly(connectedHost),
     isConnected: readonly(isConnected),
     logs: readonly(logs),
     connect,
@@ -112,6 +147,6 @@ export function useStomp() {
     subscribe,
     unsubscribe,
     publish,
-    addLog
+    addLog,
   }
 }

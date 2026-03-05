@@ -1,7 +1,7 @@
-import { useMqtt } from './useMqtt'
+import { useStomp } from './useStomp'
 import { useApi } from './useApi'
+import { useRobotId } from './useRobotId'
 
-const ROBOT_ID = 'ugv01'
 const THROTTLE_MS = 100  // 10Hz max
 
 const ARM_JOINTS = [
@@ -18,8 +18,9 @@ let gripperPending = false
 let gripperLatest = null
 
 function publishCmdVel(linear, angular) {
-  const { publish } = useMqtt()
-  publish(`${ROBOT_ID}/cmd_vel`, { linear, angular })
+  const { publish } = useStomp()
+  const { robotId } = useRobotId()
+  publish(`${robotId.value}/cmd_vel`, { linear, angular })
 }
 
 function publishArmJoint(positions) {
@@ -64,7 +65,7 @@ function stopAll() {
 }
 
 function resetTopics() {
-  // No-op: MQTT handles cleanup automatically
+  // No-op: STOMP handles cleanup automatically
 }
 
 export function useRobotControl() {

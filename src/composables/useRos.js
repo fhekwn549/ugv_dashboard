@@ -1,9 +1,9 @@
-// Legacy compatibility shim — delegates to useMqtt
-import { useMqtt } from './useMqtt'
+// Legacy compatibility shim — delegates to useStomp
+import { useStomp } from './useStomp'
 import { useApi } from './useApi'
 
 export function useRos() {
-  const { brokerUrl, isConnected, logs, connect, disconnect, addLog } = useMqtt()
+  const { brokerUrl, isConnected, logs, connect, disconnect, addLog } = useStomp()
 
   return {
     url: brokerUrl,

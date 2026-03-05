@@ -1,23 +1,24 @@
 import { ref, watch, readonly } from 'vue'
-import { useMqtt } from './useMqtt'
+import { useStomp } from './useStomp'
 import { useApi } from './useApi'
-
-const ROBOT_ID = 'ugv01'
+import { useRobotId } from './useRobotId'
 
 const navStatus = ref('idle')
 const goalX = ref(0)
 const goalY = ref(0)
 const feedbackDistance = ref(0)
 
-let subscribed = false
+let subscribedFor = null
 
-function setupSubscription() {
-  if (subscribed) return
-  subscribed = true
+function teardown(rid) {
+  const { unsubscribe } = useStomp()
+  unsubscribe(`${rid}/nav_status`)
+}
 
-  const { subscribe } = useMqtt()
+function setup(rid) {
+  const { subscribe } = useStomp()
 
-  subscribe(`${ROBOT_ID}/nav_status`, (data) => {
+  subscribe(`${rid}/nav_status`, (data) => {
     navStatus.value = data.status
     goalX.value = data.goal_x
     goalY.value = data.goal_y
@@ -36,10 +37,22 @@ async function setInitialPose(x, y, yaw) {
 }
 
 export function useNavigation() {
-  const { isConnected } = useMqtt()
+  const { isConnected } = useStomp()
+  const { robotId } = useRobotId()
 
-  watch(isConnected, (connected) => {
-    if (connected) setupSubscription()
+  watch([isConnected, robotId], ([connected, rid]) => {
+    if (subscribedFor) {
+      teardown(subscribedFor)
+      subscribedFor = null
+    }
+    if (connected && rid) {
+      navStatus.value = 'idle'
+      goalX.value = 0
+      goalY.value = 0
+      feedbackDistance.value = 0
+      setup(rid)
+      subscribedFor = rid
+    }
   }, { immediate: true })
 
   return {

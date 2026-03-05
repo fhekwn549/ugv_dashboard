@@ -1,14 +1,13 @@
 import { ref, watch, readonly } from 'vue'
-import { useMqtt } from './useMqtt'
+import { useStomp } from './useStomp'
 import { useApi } from './useApi'
-
-const ROBOT_ID = 'ugv01'
+import { useRobotId } from './useRobotId'
 
 const mapData = ref(null)
 const globalPath = ref([])
 const navStatus = ref({ status: 'idle', distance: null, goalX: null, goalY: null, goalTheta: null })
 
-let subscribed = false
+let subscribedFor = null
 let lastMapRevision = -1
 
 async function fetchMap() {
@@ -33,21 +32,32 @@ async function fetchMap() {
   }
 }
 
-function setupSubscriptions() {
-  if (subscribed) return
-  subscribed = true
+function teardown(rid) {
+  const { unsubscribe } = useStomp()
+  unsubscribe(`${rid}/map_updated`)
+  unsubscribe(`${rid}/path`)
+  unsubscribe(`${rid}/nav_status`)
+}
 
-  const { subscribe, addLog } = useMqtt()
+function resetState() {
+  mapData.value = null
+  globalPath.value = []
+  navStatus.value = { status: 'idle', distance: null, goalX: null, goalY: null, goalTheta: null }
+  lastMapRevision = -1
+}
+
+function setup(rid) {
+  const { subscribe, addLog } = useStomp()
 
   // Refresh map when notified
-  subscribe(`${ROBOT_ID}/map_updated`, (data) => {
+  subscribe(`${rid}/map_updated`, (data) => {
     if (data.revision !== lastMapRevision) {
       fetchMap()
     }
   })
 
   // Path updates
-  subscribe(`${ROBOT_ID}/path`, (data) => {
+  subscribe(`${rid}/path`, (data) => {
     const poses = data.poses || []
     globalPath.value = poses
     if (poses.length > 0) {
@@ -57,7 +67,7 @@ function setupSubscriptions() {
 
   // Nav status
   let prevNavStatus = 'idle'
-  subscribe(`${ROBOT_ID}/nav_status`, (data) => {
+  subscribe(`${rid}/nav_status`, (data) => {
     navStatus.value = {
       status: data.status || 'idle',
       distance: data.feedback_distance ?? null,
@@ -83,7 +93,7 @@ function setupSubscriptions() {
 
 function publishNavGoal(x, y, theta) {
   const { post, robotId } = useApi()
-  const { addLog } = useMqtt()
+  const { addLog } = useStomp()
   const deg = (theta * 180 / Math.PI).toFixed(1)
   addLog('info', `NAV Goal: (${x.toFixed(2)}, ${y.toFixed(2)}) heading ${deg}°`)
   post(`/api/${robotId.value}/navigate`, { x, y, theta })
@@ -95,11 +105,18 @@ function cancelNavigation() {
 }
 
 export function useMap() {
-  const { isConnected } = useMqtt()
+  const { isConnected } = useStomp()
+  const { robotId } = useRobotId()
 
-  watch(isConnected, (connected) => {
-    if (connected) {
-      setupSubscriptions()
+  watch([isConnected, robotId], ([connected, rid]) => {
+    if (subscribedFor) {
+      teardown(subscribedFor)
+      subscribedFor = null
+    }
+    if (connected && rid) {
+      resetState()
+      setup(rid)
+      subscribedFor = rid
     }
   }, { immediate: true })
 

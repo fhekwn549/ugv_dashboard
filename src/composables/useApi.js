@@ -1,31 +1,24 @@
-import { ref } from 'vue'
+import { computed } from 'vue'
+import api from '@/plugins/axios'
+import { useStomp } from './useStomp'
+import { useRobotId } from './useRobotId'
 
-const robotHost = import.meta.env.VITE_ROBOT_HOST || 'localhost'
 const apiPort = import.meta.env.VITE_API_PORT || '8081'
-const apiBase = ref(`http://${robotHost}:${apiPort}`)
-const robotId = ref('ugv01')
 
-async function request(method, path, body = null) {
-  const url = `${apiBase.value}${path}`
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' }
-  }
-  if (body) opts.body = JSON.stringify(body)
-
-  try {
-    const res = await fetch(url, opts)
-    return await res.json()
-  } catch {
-    return { error: 'request_failed' }
-  }
+function baseUrl() {
+  const { connectedHost } = useStomp()
+  return `http://${connectedHost.value}:${apiPort}`
 }
 
 export function useApi() {
+  const { connectedHost } = useStomp()
+  const { robotId } = useRobotId()
+  const apiBase = computed(() => `http://${connectedHost.value}:${apiPort}`)
+
   return {
     apiBase,
     robotId,
-    get: (path) => request('GET', path),
-    post: (path, body) => request('POST', path, body)
+    get: (path) => api.get(`${baseUrl()}${path}`).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
+    post: (path, body) => api.post(`${baseUrl()}${path}`, body).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
   }
 }

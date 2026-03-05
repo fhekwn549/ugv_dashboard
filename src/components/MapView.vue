@@ -9,24 +9,41 @@
       @mouseleave="onMouseUp"
       @contextmenu.prevent
     ></canvas>
-    <div v-if="navStatus.status === 'navigating'" class="nav-overlay">
-      <span class="nav-status">
-        Navigating<span v-if="navStatus.distance != null"> — {{ navStatus.distance.toFixed(2) }}m</span>
-        <span v-if="navStatus.goalX != null"> | Goal: ({{ navStatus.goalX.toFixed(2) }}, {{ navStatus.goalY.toFixed(2) }}) → {{ (navStatus.goalTheta * 180 / Math.PI).toFixed(0) }}°</span>
-      </span>
-      <button class="nav-cancel-btn" @click="cancelNavigation">Cancel</button>
-    </div>
-    <div v-else-if="showResult && navStatus.status === 'succeeded'" class="nav-overlay nav-done">
-      <span class="nav-status">Arrived</span>
-    </div>
-    <div v-else-if="showResult && (navStatus.status === 'failed' || navStatus.status === 'canceled')" class="nav-overlay nav-err">
-      <span class="nav-status">{{ navStatus.status === 'failed' ? 'Failed' : 'Canceled' }}</span>
-    </div>
-    <div v-if="navGoalDragging" class="nav-hint">Shift+Drag to set heading</div>
-    <button class="lidar-toggle" :class="{ active: showScan }" @click="showScan = !showScan">
-      LiDAR
-    </button>
-    <div class="map-info">
+
+    <v-chip
+      v-if="navStatus.status === 'navigating'"
+      color="primary"
+      class="nav-chip"
+      size="small"
+    >
+      Navigating
+      <span v-if="navStatus.distance != null"> — {{ navStatus.distance.toFixed(2) }}m</span>
+      <v-btn icon="mdi-close" size="x-small" variant="text" class="ml-1" @click="cancelNavigation" />
+    </v-chip>
+    <v-chip
+      v-else-if="showResult && navStatus.status === 'succeeded'"
+      color="success"
+      class="nav-chip"
+      size="small"
+    >Arrived</v-chip>
+    <v-chip
+      v-else-if="showResult && (navStatus.status === 'failed' || navStatus.status === 'canceled')"
+      color="error"
+      class="nav-chip"
+      size="small"
+    >{{ navStatus.status === 'failed' ? 'Failed' : 'Canceled' }}</v-chip>
+
+    <div v-if="navGoalDragging" class="nav-hint text-caption">Shift+Drag to set heading</div>
+
+    <v-btn
+      :color="showScan ? 'error' : 'default'"
+      :variant="showScan ? 'tonal' : 'outlined'"
+      size="x-small"
+      class="lidar-toggle"
+      @click="showScan = !showScan"
+    >LiDAR</v-btn>
+
+    <div class="map-info text-caption">
       <span v-if="mapData">{{ mapData.width }}x{{ mapData.height }} | {{ mapData.resolution }}m/px</span>
       <span v-else>No map data</span>
       <span>Zoom: {{ mapZoom.toFixed(1) }}x</span>
@@ -57,6 +74,7 @@ watch(() => navStatus.value.status, (s) => {
     showResult.value = false
   }
 })
+
 const { position, orientation, mapPosition, mapOrientation, mapPoseValid } = useRobotState()
 const showScan = ref(true)
 
@@ -73,9 +91,8 @@ let animationId = null
 let resizeObserver = null
 let mapImage = null
 
-// Interaction state
 let dragging = false
-let dragType = null // 'pan' | 'rotate' | 'navgoal'
+let dragType = null
 let dragStartX = 0
 let dragStartY = 0
 let dragStartAngle = 0
@@ -84,17 +101,14 @@ let panStartY = 0
 let rotationStart = 0
 const CLICK_THRESHOLD = 4
 
-// Nav goal drag state
 const navGoalDragging = ref(false)
-let navGoalStartWorld = null // { x, y } in map coords
+let navGoalStartWorld = null
 let navGoalTheta = 0
 
 function getAngleFromCenter(e) {
   const canvas = canvasRef.value
   const rect = canvas.getBoundingClientRect()
-  const cx = rect.width / 2
-  const cy = rect.height / 2
-  return Math.atan2(e.clientY - rect.top - cy, e.clientX - rect.left - cx)
+  return Math.atan2(e.clientY - rect.top - rect.height / 2, e.clientX - rect.left - rect.width / 2)
 }
 
 function onMouseDown(e) {
@@ -102,14 +116,12 @@ function onMouseDown(e) {
   dragStartY = e.clientY
 
   if (e.button === 2) {
-    // Right drag = rotate
     dragging = true
     dragType = 'rotate'
     dragStartAngle = getAngleFromCenter(e)
     rotationStart = rotation.value
     canvasRef.value.style.cursor = 'grabbing'
   } else if (e.button === 0 && e.shiftKey) {
-    // Shift + left = nav goal (with optional drag for heading)
     dragging = true
     dragType = 'navgoal'
     navGoalStartWorld = screenToWorld(e)
@@ -117,7 +129,6 @@ function onMouseDown(e) {
     navGoalDragging.value = true
     canvasRef.value.style.cursor = 'crosshair'
   } else if (e.button === 0) {
-    // Left drag = pan
     dragging = true
     dragType = 'pan'
     panStartX = panX.value
@@ -128,10 +139,8 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   if (!dragging) return
-
   if (dragType === 'rotate') {
-    const currentAngle = getAngleFromCenter(e)
-    rotation.value = rotationStart + (currentAngle - dragStartAngle)
+    rotation.value = rotationStart + (getAngleFromCenter(e) - dragStartAngle)
   } else if (dragType === 'pan') {
     panX.value = panStartX + (e.clientX - dragStartX)
     panY.value = panStartY + (e.clientY - dragStartY)
@@ -140,12 +149,10 @@ function onMouseMove(e) {
     const dy = e.clientY - dragStartY
     const moved = Math.sqrt(dx * dx + dy * dy)
     if (moved > CLICK_THRESHOLD) {
-      // Compute heading from drag direction in screen space
-      // Undo canvas rotation to get map-frame angle
       const cos = Math.cos(-rotation.value)
       const sin = Math.sin(-rotation.value)
       const mx = dx * cos - dy * sin
-      const my = -(dx * sin + dy * cos)  // flip Y for map coords
+      const my = -(dx * sin + dy * cos)
       navGoalTheta = Math.atan2(my, mx)
     } else {
       navGoalTheta = 0
@@ -155,15 +162,12 @@ function onMouseMove(e) {
 
 function onMouseUp(e) {
   if (!dragging) return
-
   const dx = e.clientX - dragStartX
   const dy = e.clientY - dragStartY
   const moved = Math.sqrt(dx * dx + dy * dy)
-
   dragging = false
 
   if (dragType === 'navgoal' && navGoalStartWorld) {
-    // Send nav goal with heading from drag
     const theta = moved >= CLICK_THRESHOLD ? navGoalTheta : 0
     publishNavGoal(navGoalStartWorld.x, navGoalStartWorld.y, theta)
     navGoalDragging.value = false
@@ -184,11 +188,7 @@ function resizeCanvas() {
 
 function buildMapImage() {
   const map = mapData.value
-  if (!map || !map.image) {
-    mapImage = null
-    return
-  }
-
+  if (!map || !map.image) { mapImage = null; return }
   const img = new Image()
   img.onload = () => { mapImage = img }
   img.src = `data:image/png;base64,${map.image}`
@@ -202,12 +202,12 @@ function draw() {
   const w = canvas.width
   const h = canvas.height
 
-  ctx.fillStyle = '#0f1117'
+  ctx.fillStyle = '#121212'
   ctx.fillRect(0, 0, w, h)
 
   const map = mapData.value
   if (!map || !mapImage) {
-    ctx.fillStyle = '#8b90a5'
+    ctx.fillStyle = 'rgba(255,255,255,0.3)'
     ctx.font = '14px sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('Waiting for map ...', w / 2, h / 2)
@@ -225,16 +225,14 @@ function draw() {
   ctx.scale(scale, -scale)
   ctx.translate(-width / 2, -height / 2)
 
-  // Map image (PNG, already flipped by backend)
   ctx.save()
   ctx.scale(1, -1)
   ctx.drawImage(mapImage, 0, -height)
   ctx.restore()
 
-  // Global path
   const path = globalPath.value
   if (path.length > 1) {
-    ctx.strokeStyle = '#4e8cff'
+    ctx.strokeStyle = '#4fc3f7'
     ctx.lineWidth = 1 / scale
     ctx.beginPath()
     for (let i = 0; i < path.length; i++) {
@@ -246,7 +244,6 @@ function draw() {
     ctx.stroke()
   }
 
-  // Goal marker
   const ns = navStatus.value
   const showGoal = (ns.status === 'navigating' || ns.status === 'succeeded') && ns.goalX != null
   if (showGoal) {
@@ -254,138 +251,108 @@ function draw() {
     const gy = (ns.goalY - origin.position.y) / resolution
     const gTheta = ns.goalTheta || 0
     const markerSize = 8 / scale
-
     ctx.save()
     ctx.translate(gx, gy)
-
-    // Cross
-    ctx.strokeStyle = '#22c55e'
+    ctx.strokeStyle = '#66bb6a'
     ctx.lineWidth = 2 / scale
     ctx.beginPath()
-    ctx.moveTo(-markerSize, 0)
-    ctx.lineTo(markerSize, 0)
-    ctx.moveTo(0, -markerSize)
-    ctx.lineTo(0, markerSize)
+    ctx.moveTo(-markerSize, 0); ctx.lineTo(markerSize, 0)
+    ctx.moveTo(0, -markerSize); ctx.lineTo(0, markerSize)
     ctx.stroke()
-
-    // Direction arrow
     ctx.rotate(gTheta)
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.7)'
+    ctx.fillStyle = 'rgba(102, 187, 106, 0.7)'
     ctx.beginPath()
     ctx.moveTo(markerSize * 1.2, 0)
     ctx.lineTo(markerSize * 0.4, -markerSize * 0.5)
     ctx.lineTo(markerSize * 0.4, markerSize * 0.5)
     ctx.closePath()
     ctx.fill()
-
     ctx.restore()
   }
 
-  // Nav goal drag preview (while Shift+dragging)
   if (navGoalDragging.value && navGoalStartWorld) {
     const pgx = (navGoalStartWorld.x - origin.position.x) / resolution
     const pgy = (navGoalStartWorld.y - origin.position.y) / resolution
     const previewSize = 8 / scale
-
     ctx.save()
     ctx.translate(pgx, pgy)
-
-    // Preview cross
-    ctx.strokeStyle = 'rgba(34, 197, 94, 0.5)'
+    ctx.strokeStyle = 'rgba(102, 187, 106, 0.5)'
     ctx.lineWidth = 2 / scale
     ctx.beginPath()
-    ctx.moveTo(-previewSize, 0)
-    ctx.lineTo(previewSize, 0)
-    ctx.moveTo(0, -previewSize)
-    ctx.lineTo(0, previewSize)
+    ctx.moveTo(-previewSize, 0); ctx.lineTo(previewSize, 0)
+    ctx.moveTo(0, -previewSize); ctx.lineTo(0, previewSize)
     ctx.stroke()
-
-    // Preview direction arrow
     ctx.rotate(navGoalTheta)
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.4)'
+    ctx.fillStyle = 'rgba(102, 187, 106, 0.4)'
     ctx.beginPath()
     ctx.moveTo(previewSize * 1.2, 0)
     ctx.lineTo(previewSize * 0.4, -previewSize * 0.5)
     ctx.lineTo(previewSize * 0.4, previewSize * 0.5)
     ctx.closePath()
     ctx.fill()
-
     ctx.restore()
   }
 
-  // Robot position (prefer TF-based map_pose, fallback to odom)
-  const useMap = mapPoseValid.value
-  const posX = useMap ? mapPosition.value.x : position.value.x
-  const posY = useMap ? mapPosition.value.y : position.value.y
-  const posYaw = useMap ? mapOrientation.value : orientation.value
+  const useMapPose = mapPoseValid.value
+  const posX = useMapPose ? mapPosition.value.x : position.value.x
+  const posY = useMapPose ? mapPosition.value.y : position.value.y
+  const posYaw = useMapPose ? mapOrientation.value : orientation.value
 
   const rx = (posX - origin.position.x) / resolution
   const ry = (posY - origin.position.y) / resolution
 
-  // LiDAR overlay
   if (showScan.value && scanPoints.value.length > 0) {
     const cosYaw = Math.cos(posYaw)
     const sinYaw = Math.sin(posYaw)
     ctx.fillStyle = 'rgba(255, 60, 60, 0.8)'
     const dotSize = 1.5 / scale
     for (const pt of scanPoints.value) {
-      // base_link → map frame rotation
       const mx = posX + pt.x * cosYaw - pt.y * sinYaw
       const my = posY + pt.x * sinYaw + pt.y * cosYaw
-      // map → pixel
       const px = (mx - origin.position.x) / resolution
       const py = (my - origin.position.y) / resolution
       ctx.fillRect(px - dotSize / 2, py - dotSize / 2, dotSize, dotSize)
     }
   }
 
-  // Robot arrow
   ctx.save()
   ctx.translate(rx, ry)
   ctx.rotate(posYaw)
-
   const robotSize = 6 / scale
-  ctx.fillStyle = '#f87171'
+  ctx.fillStyle = '#ef5350'
   ctx.beginPath()
   ctx.moveTo(robotSize, 0)
   ctx.lineTo(-robotSize * 0.7, -robotSize * 0.7)
   ctx.lineTo(-robotSize * 0.7, robotSize * 0.7)
   ctx.closePath()
   ctx.fill()
-
-  ctx.restore()
   ctx.restore()
 
+  ctx.restore()
   animationId = requestAnimationFrame(draw)
 }
 
 function screenToWorld(e) {
   const map = mapData.value
   if (!map || !mapImage) return null
-
   const canvas = canvasRef.value
   const rect = canvas.getBoundingClientRect()
   const { width, height, resolution, origin } = map
   const baseScale = Math.min(canvas.width / width, canvas.height / height)
   const scale = mapZoom.value * baseScale
 
-  // Reverse: screen → rotated map coords
   let sx = e.clientX - rect.left - canvas.width / 2 - panX.value
   let sy = e.clientY - rect.top - canvas.height / 2 - panY.value
-
-  // Undo rotation
   const cos = Math.cos(-rotation.value)
   const sin = Math.sin(-rotation.value)
-  const rx = sx * cos - sy * sin
-  const ry = sx * sin + sy * cos
-
-  // Undo scale + flip
-  const px = rx / scale + width / 2
-  const py = -(ry / scale) + height / 2
+  const rxv = sx * cos - sy * sin
+  const ryv = sx * sin + sy * cos
+  const px = rxv / scale + width / 2
+  const py = -(ryv / scale) + height / 2
 
   return {
     x: px * resolution + origin.position.x,
-    y: py * resolution + origin.position.y
+    y: py * resolution + origin.position.y,
   }
 }
 
@@ -417,98 +384,45 @@ onUnmounted(() => {
   min-height: 200px;
   overflow: hidden;
 }
-
 canvas {
   width: 100%;
   height: 100%;
   display: block;
   cursor: crosshair;
 }
-
-.nav-overlay {
+.nav-chip {
   position: absolute;
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(78, 140, 255, 0.9);
-  color: #fff;
-  font-size: 13px;
-  font-family: var(--font-mono);
-  padding: 6px 14px;
-  border-radius: 6px;
 }
-
-.nav-overlay.nav-done {
-  background: rgba(52, 211, 153, 0.9);
-}
-
-.nav-overlay.nav-err {
-  background: rgba(248, 113, 113, 0.9);
-}
-
-.nav-cancel-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: #fff;
-  padding: 2px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-family: var(--font-mono);
-}
-
-.nav-cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.lidar-toggle {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(15, 17, 23, 0.7);
-  border: 1px solid rgba(255, 60, 60, 0.4);
-  color: #8b90a5;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  padding: 3px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.lidar-toggle.active {
-  background: rgba(255, 60, 60, 0.25);
-  color: #f87171;
-  border-color: #f87171;
-}
-
 .nav-hint {
   position: absolute;
   bottom: 36px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 11px;
-  color: rgba(34, 197, 94, 0.9);
-  font-family: var(--font-mono);
-  background: rgba(15, 17, 23, 0.8);
+  color: rgb(var(--v-theme-success));
+  font-family: 'Consolas', 'Monaco', monospace;
+  background: rgba(18, 18, 18, 0.8);
   padding: 2px 10px;
   border-radius: 4px;
   pointer-events: none;
 }
-
+.lidar-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
 .map-info {
   position: absolute;
   bottom: 8px;
   right: 8px;
   display: flex;
   gap: 12px;
-  font-size: 11px;
-  color: var(--color-text-dim);
-  font-family: var(--font-mono);
-  background: rgba(15, 17, 23, 0.8);
+  font-family: 'Consolas', 'Monaco', monospace;
+  background: rgba(18, 18, 18, 0.8);
   padding: 2px 8px;
   border-radius: 4px;
+  color: rgba(255,255,255,0.5);
 }
 </style>

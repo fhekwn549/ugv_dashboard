@@ -8,7 +8,7 @@
       @mouseup="onMouseUp"
       @mouseleave="onMouseUp"
     ></canvas>
-    <div class="lidar-info">
+    <div class="lidar-info text-caption">
       <span>{{ scanPoints.length }} pts</span>
       <span>Zoom: {{ zoom.toFixed(1) }}x</span>
       <span>Rot: {{ rotationDeg }}°</span>
@@ -25,14 +25,12 @@ const { scanPoints } = useLidar()
 const canvasRef = ref(null)
 const containerRef = ref(null)
 const zoom = ref(80)
-const rotation = ref(0) // radians
+const rotation = ref(0)
 
 const rotationDeg = computed(() => Math.round(rotation.value * 180 / Math.PI))
 
 let animationId = null
 let resizeObserver = null
-
-// Drag rotation state
 let dragging = false
 let dragStartAngle = 0
 let rotationStart = 0
@@ -42,9 +40,7 @@ function getAngleFromCenter(e) {
   const rect = canvas.getBoundingClientRect()
   const cx = rect.width / 2
   const cy = rect.height / 2
-  const dx = e.clientX - rect.left - cx
-  const dy = e.clientY - rect.top - cy
-  return Math.atan2(dy, dx)
+  return Math.atan2(e.clientY - rect.top - cy, e.clientX - rect.left - cx)
 }
 
 function onMouseDown(e) {
@@ -57,8 +53,7 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   if (!dragging) return
-  const currentAngle = getAngleFromCenter(e)
-  rotation.value = rotationStart + (currentAngle - dragStartAngle)
+  rotation.value = rotationStart + (getAngleFromCenter(e) - dragStartAngle)
 }
 
 function onMouseUp() {
@@ -70,7 +65,6 @@ function resizeCanvas() {
   const canvas = canvasRef.value
   const container = containerRef.value
   if (!canvas || !container) return
-
   canvas.width = container.clientWidth
   canvas.height = container.clientHeight
 }
@@ -86,11 +80,10 @@ function draw() {
   const cy = h / 2
   const rot = rotation.value
 
-  ctx.fillStyle = '#0f1117'
+  ctx.fillStyle = '#121212'
   ctx.fillRect(0, 0, w, h)
 
-  // Grid (fixed, doesn't rotate)
-  ctx.strokeStyle = '#1a1d27'
+  ctx.strokeStyle = '#1e1e1e'
   ctx.lineWidth = 1
   const gridStep = zoom.value
   for (let r = gridStep; r < Math.max(w, h); r += gridStep) {
@@ -99,12 +92,10 @@ function draw() {
     ctx.stroke()
   }
 
-  // Save and apply rotation
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate(rot)
 
-  // Axes (rotate with view)
   ctx.strokeStyle = '#2e3348'
   ctx.lineWidth = 1
   const axLen = Math.max(w, h)
@@ -115,8 +106,7 @@ function draw() {
   ctx.lineTo(0, axLen)
   ctx.stroke()
 
-  // Robot arrow
-  ctx.fillStyle = '#4e8cff'
+  ctx.fillStyle = '#4fc3f7'
   ctx.beginPath()
   ctx.moveTo(8, 0)
   ctx.lineTo(-5, -5)
@@ -124,17 +114,12 @@ function draw() {
   ctx.closePath()
   ctx.fill()
 
-  // Scan points
-  const points = scanPoints.value
-  ctx.fillStyle = '#34d399'
-  for (const pt of points) {
-    const px = pt.x * zoom.value
-    const py = -pt.y * zoom.value
-    ctx.fillRect(px - 1, py - 1, 2, 2)
+  ctx.fillStyle = '#66bb6a'
+  for (const pt of scanPoints.value) {
+    ctx.fillRect(pt.x * zoom.value - 1, -pt.y * zoom.value - 1, 2, 2)
   }
 
   ctx.restore()
-
   animationId = requestAnimationFrame(draw)
 }
 
@@ -164,24 +149,21 @@ onUnmounted(() => {
   min-height: 200px;
   overflow: hidden;
 }
-
 canvas {
   width: 100%;
   height: 100%;
   display: block;
 }
-
 .lidar-info {
   position: absolute;
   bottom: 8px;
   right: 8px;
   display: flex;
   gap: 12px;
-  font-size: 11px;
-  color: var(--color-text-dim);
-  font-family: var(--font-mono);
-  background: rgba(15, 17, 23, 0.8);
+  font-family: 'Consolas', 'Monaco', monospace;
+  background: rgba(18, 18, 18, 0.8);
   padding: 2px 8px;
   border-radius: 4px;
+  color: rgba(255,255,255,0.5);
 }
 </style>

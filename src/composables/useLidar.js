@@ -1,19 +1,20 @@
 import { ref, watch, readonly } from 'vue'
-import { useMqtt } from './useMqtt'
-
-const ROBOT_ID = 'ugv01'
+import { useStomp } from './useStomp'
+import { useRobotId } from './useRobotId'
 
 const scanPoints = ref([])
 
-let subscribed = false
+let subscribedFor = null
 
-function setupSubscription() {
-  if (subscribed) return
-  subscribed = true
+function teardown(rid) {
+  const { unsubscribe } = useStomp()
+  unsubscribe(`${rid}/scan`)
+}
 
-  const { subscribe } = useMqtt()
+function setup(rid) {
+  const { subscribe } = useStomp()
 
-  subscribe(`${ROBOT_ID}/scan`, (msg) => {
+  subscribe(`${rid}/scan`, (msg) => {
     const points = []
     const { angle_min, angle_increment, ranges, range_min, range_max } = msg
 
@@ -33,11 +34,18 @@ function setupSubscription() {
 }
 
 export function useLidar() {
-  const { isConnected } = useMqtt()
+  const { isConnected } = useStomp()
+  const { robotId } = useRobotId()
 
-  watch(isConnected, (connected) => {
-    if (connected) {
-      setupSubscription()
+  watch([isConnected, robotId], ([connected, rid]) => {
+    if (subscribedFor) {
+      teardown(subscribedFor)
+      subscribedFor = null
+    }
+    if (connected && rid) {
+      scanPoints.value = []
+      setup(rid)
+      subscribedFor = rid
     }
   }, { immediate: true })
 

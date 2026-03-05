@@ -1,37 +1,91 @@
 <template>
-  <div class="connection-bar">
-    <div class="bar-left">
-      <span class="logo">UGV Dashboard</span>
+  <v-app-bar density="compact" color="surface" elevation="1">
+    <v-app-bar-title class="text-primary font-weight-bold" style="flex: none">
+      UGV Dashboard
+    </v-app-bar-title>
+
+    <v-tabs class="ml-4" density="compact" color="primary">
+      <v-tab to="/" exact>Control</v-tab>
+      <v-tab to="/tasks">Tasks</v-tab>
+      <v-tab to="/production">Production</v-tab>
+      <v-tab to="/alarms">Alarms</v-tab>
+      <v-tab to="/logs">Logs</v-tab>
+    </v-tabs>
+
+    <v-spacer />
+
+    <div class="d-flex align-center ga-2 mr-2">
+      <v-chip
+        :color="isConnected ? 'success' : 'error'"
+        size="small"
+        variant="flat"
+        label
+      >
+        <v-icon start size="x-small">
+          {{ isConnected ? 'mdi-check-circle' : 'mdi-close-circle' }}
+        </v-icon>
+        {{ isConnected ? 'Connected' : 'Disconnected' }}
+      </v-chip>
+
+      <v-select
+        v-model="selectedRobot"
+        :items="availableRobots"
+        :disabled="!isConnected || availableRobots.length === 0"
+        hide-details
+        density="compact"
+        variant="outlined"
+        style="min-width: 140px; max-width: 180px"
+        placeholder="Robot"
+      />
+
+      <v-text-field
+        v-model="brokerUrl"
+        placeholder="ws://192.168.0.71:15674/ws"
+        :disabled="isConnected"
+        hide-details
+        density="compact"
+        variant="outlined"
+        style="min-width: 320px"
+        class="text-mono"
+        @keyup.enter="handleConnect"
+        @focus="onFocus"
+      />
+
+      <v-btn
+        :color="isConnected ? 'error' : 'primary'"
+        size="small"
+        @click="handleConnect"
+      >
+        {{ isConnected ? 'Disconnect' : 'Connect' }}
+      </v-btn>
     </div>
-    <div class="bar-center">
-      <div class="url-group">
-        <span :class="['dot', { connected: isConnected }]"></span>
-        <input
-          v-model="brokerUrl"
-          type="text"
-          class="url-input"
-          placeholder="ws://192.168.0.71:15674/ws"
-          :disabled="isConnected"
-          @keyup.enter="handleConnect"
-        />
-        <button
-          :class="['conn-btn', { disconnect: isConnected }]"
-          @click="handleConnect"
-        >
-          {{ isConnected ? 'Disconnect' : 'Connect' }}
-        </button>
-      </div>
-    </div>
-    <div class="bar-right">
-      <span class="status-text">{{ isConnected ? 'Connected' : 'Disconnected' }}</span>
-    </div>
-  </div>
+  </v-app-bar>
 </template>
 
 <script setup>
-import { useMqtt } from '@/composables/useMqtt'
+import { watch, computed } from 'vue'
+import { useStomp } from '@/composables/useStomp'
+import { useRobotId } from '@/composables/useRobotId'
 
-const { brokerUrl, isConnected, connect, disconnect } = useMqtt()
+const { brokerUrl, connectedHost, isConnected, connect, disconnect } = useStomp()
+const { robotId, setRobotId, availableRobots, fetchRobots } = useRobotId()
+
+const selectedRobot = computed({
+  get: () => robotId.value,
+  set: (val) => setRobotId(val),
+})
+
+watch(isConnected, (connected) => {
+  if (connected) {
+    fetchRobots(connectedHost.value)
+  }
+})
+
+function onFocus(e) {
+  // Move cursor to start so full URL is visible
+  const input = e.target
+  setTimeout(() => input.setSelectionRange(0, 0), 0)
+}
 
 function handleConnect() {
   if (isConnected.value) {
@@ -43,94 +97,10 @@ function handleConnect() {
 </script>
 
 <style scoped>
-.connection-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-  gap: 16px;
-}
-
-.logo {
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--color-accent);
-  white-space: nowrap;
-}
-
-.bar-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.url-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--color-surface-alt);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 4px 8px;
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--color-danger);
-  flex-shrink: 0;
-  transition: background 0.3s;
-}
-
-.dot.connected {
-  background: var(--color-success);
-  box-shadow: 0 0 6px var(--color-success);
-}
-
-.url-input {
-  background: transparent;
-  border: none;
-  color: var(--color-text);
-  font-family: var(--font-mono);
+.text-mono :deep(input) {
+  font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
-  width: 240px;
-  outline: none;
-}
-
-.url-input:disabled {
-  color: var(--color-text-dim);
-}
-
-.conn-btn {
-  padding: 4px 14px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--color-accent);
-  color: #fff;
-  transition: background 0.2s;
-  white-space: nowrap;
-}
-
-.conn-btn:hover {
-  background: var(--color-accent-hover);
-}
-
-.conn-btn.disconnect {
-  background: var(--color-danger);
-}
-
-.conn-btn.disconnect:hover {
-  background: #ef4444;
-}
-
-.status-text {
-  font-size: 12px;
-  color: var(--color-text-dim);
-  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: ltr;
 }
 </style>
