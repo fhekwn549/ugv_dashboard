@@ -74,9 +74,11 @@ function connect(url) {
     },
     // onError
     (error) => {
-      isConnected.value = false
       const msg = typeof error === 'string' ? error : error?.headers?.message || 'unknown'
+      // Non-fatal subscription errors — just ignore silently
+      if (msg.includes('Subscription not found')) return
       addLog('error', `STOMP error: ${msg}`)
+      isConnected.value = false
       scheduleReconnect()
     },
     // vhost
