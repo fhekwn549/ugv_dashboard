@@ -35,13 +35,11 @@ npm install
 
 ```bash
 VITE_ROBOT_HOST=localhost         # STOMP 브로커 + Factory API (로컬 Docker)
-VITE_BRIDGE_HOST=192.168.0.71     # RPi ugv_bridge REST API
-VITE_API_PORT=8081
 VITE_FACTORY_API_PORT=8082
 ```
 
 > `VITE_ROBOT_HOST`는 STOMP 브로커와 Factory API의 호스트로 사용됩니다.
-> `VITE_BRIDGE_HOST`는 RPi의 ugv_bridge REST API(로봇팔/네비게이션/맵) 호스트입니다.
+> 로봇별 RPi IP는 Factory API의 Robot DB에서 관리되므로 `.env`에 설정할 필요 없습니다.
 
 ### 인프라 실행
 
@@ -135,15 +133,15 @@ ugv_dashboard/
 
 ```
 [Vue Component] → [Composable] → [STOMP/WS]  → [RabbitMQ (로컬 Docker)] → [RPi MQTT]
-                                → [REST API] → [RPi ugv_bridge :8081]
-                                → [REST API] → [Factory API (로컬 Docker) :8082]
+                                → [REST API] → [Factory API :8082] ─┬→ 로봇 CRUD
+                                                                     └→ 프록시 → [RPi bridge :8081]
 ```
 
 - **Components**: UI 렌더링과 사용자 인터랙션 담당
 - **Composables**: 비즈니스 로직과 상태 관리 (`use*.js`)
 - **STOMP/WS**: 실시간 데이터 (센서, 상태) 수신 — 로컬 Docker RabbitMQ 경유
-- **REST API (Bridge)**: 로봇 명령 전송 — RPi ugv_bridge 직접 호출 (`VITE_BRIDGE_HOST`)
-- **REST API (Factory)**: 공장 관리 — 로컬 Docker Factory API (`VITE_ROBOT_HOST`)
+- **REST API (로봇 제어)**: `/api/robots/{id}/arm` 등 → Factory API가 RPi bridge로 프록시
+- **REST API (공장 관리)**: `/api/alarms`, `/api/tasks` 등 → Factory API 직접 처리
 
 ---
 
