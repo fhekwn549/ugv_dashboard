@@ -1,6 +1,8 @@
 import { computed, ref } from 'vue'
 import store from '@/plugins/stores'
 
+const bridgeHost = import.meta.env.VITE_BRIDGE_HOST || ''
+const apiPort = import.meta.env.VITE_API_PORT || '8081'
 const availableRobots = ref([])
 
 export function useRobotId() {
@@ -12,8 +14,8 @@ export function useRobotId() {
 
   async function fetchRobots(host) {
     try {
-      const apiPort = import.meta.env.VITE_API_PORT || '8081'
-      const res = await fetch(`http://${host}:${apiPort}/api/health`)
+      const targetHost = bridgeHost || host
+      const res = await fetch(`http://${targetHost}:${apiPort}/api/health`)
       const data = await res.json()
       if (Array.isArray(data.robots)) {
         availableRobots.value = data.robots

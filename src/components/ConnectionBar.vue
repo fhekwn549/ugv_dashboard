@@ -40,7 +40,7 @@
 
       <v-text-field
         v-model="brokerUrl"
-        placeholder="ws://192.168.0.71:15674/ws"
+        placeholder="ws://localhost:15674/ws"
         :disabled="isConnected"
         hide-details
         density="compact"

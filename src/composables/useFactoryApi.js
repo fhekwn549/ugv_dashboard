@@ -1,23 +1,18 @@
 import { computed } from 'vue'
 import api from '@/plugins/axios'
-import { useStomp } from './useStomp'
 
+const factoryHost = import.meta.env.VITE_ROBOT_HOST || 'localhost'
 const factoryPort = import.meta.env.VITE_FACTORY_API_PORT || '8082'
-
-function baseUrl() {
-  const { connectedHost } = useStomp()
-  return `http://${connectedHost.value}:${factoryPort}`
-}
+const factoryBaseUrl = `http://${factoryHost}:${factoryPort}`
 
 export function useFactoryApi() {
-  const { connectedHost } = useStomp()
-  const apiBase = computed(() => `http://${connectedHost.value}:${factoryPort}`)
+  const apiBase = computed(() => factoryBaseUrl)
 
   return {
     apiBase,
-    get: (path) => api.get(`${baseUrl()}${path}`).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
-    post: (path, body) => api.post(`${baseUrl()}${path}`, body).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
-    patch: (path, body) => api.patch(`${baseUrl()}${path}`, body).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
-    del: (path) => api.delete(`${baseUrl()}${path}`).then((r) => r.data).catch(() => null),
+    get: (path) => api.get(`${factoryBaseUrl}${path}`).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
+    post: (path, body) => api.post(`${factoryBaseUrl}${path}`, body).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
+    patch: (path, body) => api.patch(`${factoryBaseUrl}${path}`, body).then((r) => r.data).catch(() => ({ error: 'request_failed' })),
+    del: (path) => api.delete(`${factoryBaseUrl}${path}`).then((r) => r.data).catch(() => null),
   }
 }

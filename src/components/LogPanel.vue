@@ -37,9 +37,9 @@ const { logs } = useStomp()
 
 <style scoped>
 .log-panel {
-  max-height: 140px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 .log-list {
   overflow-y: auto;
